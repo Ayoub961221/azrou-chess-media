@@ -13,23 +13,18 @@ const FIREBASE_DB_URL =
   process.env.FIREBASE_DB_URL ||
   "https://azrou-chess-club-default-rtdb.firebaseio.com";
 
-const FALLBACK_ADMIN_UIDS = ["NgL0Ahmn5KbfUCaUZaDpuVKp5uN2"];
-const FALLBACK_ADMIN_EMAILS = ["ayoubaghrari063336@gmail.com"];
-
 function adminEmails() {
-  const envEmails = (process.env.ADMIN_EMAILS || process.env.ADMIN_EMAIL || "")
+  return (process.env.ADMIN_EMAILS || process.env.ADMIN_EMAIL || "")
     .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
-  return [...new Set([...FALLBACK_ADMIN_EMAILS, ...envEmails])];
 }
 
 function adminUids() {
-  const envUids = (process.env.ADMIN_UIDS || "")
+  return (process.env.ADMIN_UIDS || "")
     .split(",")
     .map((u) => u.trim())
     .filter(Boolean);
-  return [...new Set([...FALLBACK_ADMIN_UIDS, ...envUids])];
 }
 
 function corsHeaders(event) {
@@ -120,25 +115,31 @@ async function verifyAdmin(event) {
 }
 
 function r2AccountId() {
-  return (
-    process.env.R2_ACCOUNT_ID ||
-    "a1bb65952ee4be94909fbc5a6180e41b"
-  );
+  const accountId = (process.env.R2_ACCOUNT_ID || "").trim();
+  if (!accountId) {
+    throw new HttpError(
+      503,
+      "متغيّر R2_ACCOUNT_ID غير مضبوط على Netlify: يجب إضافته في Site configuration ← Environment variables."
+    );
+  }
+  return accountId;
 }
 
 function r2Client() {
   const accountId = r2AccountId();
-  const key =
-    process.env.R2_KEY ||
-    "1e0069b16294b2cd90f4cfa25b678a53";
-  const secret =
-    process.env.R2_SECRET ||
-    "e0375676420dd38ae94a6390344021efe01a2c5643e19298b08f5a8faec8ecc2";
+  const key = (process.env.R2_KEY || "").trim();
+  const secret = (process.env.R2_SECRET || "").trim();
 
-  if (!accountId || !key || !secret) {
+  if (!key) {
     throw new HttpError(
       503,
-      "أسرار R2 غير مضبوطة على Netlify: يجب إضافة R2_KEY و R2_SECRET في Site configuration ← Environment variables."
+      "متغيّر R2_KEY غير مضبوط على Netlify: يجب إضافته في Site configuration ← Environment variables."
+    );
+  }
+  if (!secret) {
+    throw new HttpError(
+      503,
+      "متغيّر R2_SECRET غير مضبوط على Netlify: يجب إضافته في Site configuration ← Environment variables."
     );
   }
 
@@ -161,12 +162,13 @@ function bucket() {
 }
 
 function publicBase() {
-  const base = (
-    process.env.R2_PUBLIC_URL ||
-    "https://pub-abfb8b1919c14f88a8bbde4e6d80dcf0.r2.dev"
-  )
-    .trim()
-    .replace(/\/+$/, "");
+  const base = (process.env.R2_PUBLIC_URL || "").trim().replace(/\/+$/, "");
+  if (!base) {
+    throw new HttpError(
+      503,
+      "متغيّر R2_PUBLIC_URL غير مضبوط على Netlify: يجب إضافته في Site configuration ← Environment variables."
+    );
+  }
   return base;
 }
 
