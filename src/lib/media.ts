@@ -225,7 +225,7 @@ export function isDirectImageUrl(url: string | undefined): url is string {
 
 /* ---------------- نداء دوال Netlify ---------------- */
 
-async function callFunction<T>(name: "sign" | "delete", body: unknown): Promise<T> {
+async function callFunction<T>(name: "sign" | "delete" | "upload", body: unknown): Promise<T> {
   if (!auth.currentUser) throw new Error("يجب تسجيل الدخول أولاً.");
 
   const token = await auth.currentUser.getIdToken();
@@ -346,20 +346,40 @@ export async function uploadImage(
     type: compressed.contentType,
   });
 
-  onProgress?.(40);
-  await putToPresignedUrl(sign.url, compressed.blob, compressed.contentType, (p) =>
-    onProgress?.(40 + Math.round(p * 0.55))
-  );
+  let finalKey = sign.key;
+  let finalPublicUrl = sign.publicUrl;
 
-  const key = sign.key;
+  onProgress?.(40);
+  try {
+    await putToPresignedUrl(sign.url, compressed.blob, compressed.contentType, (p) =>
+      onProgress?.(40 + Math.round(p * 0.55))
+    );
+  } catch (directErr) {
+    // إذا فشل الرفع المباشر بسبب CORS أو سياسة المتصفح، نحول تلقائياً للرفع عبر دالة upload
+    console.warn("Direct R2 presigned PUT failed (likely CORS), falling back to Netlify upload function:", directErr);
+    onProgress?.(55);
+    const base64 = await blobToBase64(compressed.blob);
+    onProgress?.(70);
+    const uploaded = await callFunction<{ ok: boolean; key: string; publicUrl: string; size: number }>(
+      "upload",
+      {
+        filename: file.name,
+        type: compressed.contentType,
+        base64,
+      }
+    );
+    finalKey = uploaded.key;
+    finalPublicUrl = uploaded.publicUrl;
+  }
+
   const media: MediaRef = {
-    url: sign.publicUrl,
-    thumbUrl: sign.publicUrl,
-    mediumUrl: sign.publicUrl,
-    publicId: key,
-    imageKey: key,
+    url: finalPublicUrl,
+    thumbUrl: finalPublicUrl,
+    mediumUrl: finalPublicUrl,
+    publicId: finalKey,
+    imageKey: finalKey,
     format: compressed.extension,
-    fileName: key.split("/").pop() ?? file.name,
+    fileName: finalKey.split("/").pop() ?? file.name,
     contentType: compressed.contentType,
     width: compressed.width || undefined,
     height: compressed.height || undefined,
@@ -368,11 +388,11 @@ export async function uploadImage(
   };
 
   const record = {
-    id: key.replace(/[.#$/[\]]/g, "_"),
+    id: finalKey.replace(/[.#$/[\]]/g, "_"),
     provider: "r2",
-    url: sign.publicUrl,
-    path: key,
-    key,
+    url: finalPublicUrl,
+    path: finalKey,
+    key: finalKey,
     fileName: media.fileName,
     contentType: media.contentType ?? "",
     size: media.size ?? 0,
