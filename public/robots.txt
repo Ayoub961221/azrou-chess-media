@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+
+# لوحة الإدارة ليست للفهرسة
+Disallow: /admin
+
+Sitemap: https://comfy-cajeta-5a216e.netlify.app/sitemap.xml

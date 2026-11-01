@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  الموقع يعمل بمسارات هاش (#club، #actualites…) ومحركات البحث تتجاهل
+  ما بعد علامة #، فتعتبرها كلها الصفحة نفسها. لذلك نُدرج العنوان الجذر
+  فقط — إدراج روابط الهاش لا يفيد الفهرسة ويُعتبر تكراراً.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://comfy-cajeta-5a216e.netlify.app/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

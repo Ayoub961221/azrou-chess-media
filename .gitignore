@@ -1,0 +1,33 @@
+# التبعيات
+node_modules/
+.pnp
+.pnp.js
+
+# البناء
+dist/
+dist-ssr/
+*.local
+
+# نسخ احتياطية من قاعدة البيانات — قد تحتوي بيانات شخصية
+backup/
+*.backup.json
+
+# الأسرار والبيئة
+.env
+.env.*
+!.env.example
+serviceAccount*.json
+*-credentials.json
+
+# أدوات ونواتج مؤقتة
+shots/
+*.log
+.wrangler/
+.firebase/
+
+# المحرّرات
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.swp

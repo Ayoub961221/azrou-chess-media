@@ -1,0 +1,59 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "admins": {
+      ".read": false,
+      ".write": false,
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || auth.uid === 'NgL0Ahmn5KbfUCaUZaDpuVKp5uN2')"
+      }
+    },
+    "content": {
+      ".read": true,
+      ".write": "auth != null && (root.child('admins').child(auth.uid).val() === true || auth.uid === 'NgL0Ahmn5KbfUCaUZaDpuVKp5uN2')"
+    },
+    "meta": {
+      ".read": true,
+      ".write": "auth != null && (root.child('admins').child(auth.uid).val() === true || auth.uid === 'NgL0Ahmn5KbfUCaUZaDpuVKp5uN2')"
+    },
+    "registrations": {
+      ".read": "auth != null && (root.child('admins').child(auth.uid).val() === true || auth.uid === 'NgL0Ahmn5KbfUCaUZaDpuVKp5uN2')",
+      ".write": false,
+      "$registrationId": {
+        ".write": "(!data.exists() && newData.exists() && newData.child('status').val() === 'new') || (auth != null && (root.child('admins').child(auth.uid).val() === true || auth.uid === 'NgL0Ahmn5KbfUCaUZaDpuVKp5uN2'))",
+        ".validate": "newData.hasChildren(['fullName','phone','level','status','createdAt'])",
+        "fullName": {
+          ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 100"
+        },
+        "phone": {
+          ".validate": "newData.isString() && newData.val().length >= 8 && newData.val().length <= 20"
+        },
+        "birthInfo": {
+          ".validate": "newData.isString() && newData.val().length <= 40"
+        },
+        "guardianName": {
+          ".validate": "newData.isString() && newData.val().length <= 100"
+        },
+        "email": {
+          ".validate": "newData.isString() && newData.val().length <= 120"
+        },
+        "notes": {
+          ".validate": "newData.isString() && newData.val().length < 501"
+        },
+        "level": {
+          ".validate": "newData.isString() && (newData.val() === 'مبتدئ' || newData.val() === 'متوسط' || newData.val() === 'متقدم' || newData.val() === 'beginner' || newData.val() === 'intermediate' || newData.val() === 'advanced')"
+        },
+        "status": {
+          ".validate": "newData.isString() && (newData.val() === 'new' || newData.val() === 'done')"
+        },
+        "createdAt": {
+          ".validate": "newData.isNumber()"
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    }
+  }
+}
