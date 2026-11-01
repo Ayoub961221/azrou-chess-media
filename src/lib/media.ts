@@ -226,7 +226,7 @@ export function isDirectImageUrl(url: string | undefined): url is string {
 /* ---------------- نداء دوال Netlify ---------------- */
 
 async function callFunction<T>(name: "sign" | "delete", body: unknown): Promise<T> {
-  if (!auth.currentUser) throw new Error("يجب تسجيل الدخول.");
+  if (!auth.currentUser) throw new Error("يجب تسجيل الدخول أولاً.");
 
   const token = await auth.currentUser.getIdToken();
 
@@ -241,17 +241,37 @@ async function callFunction<T>(name: "sign" | "delete", body: unknown): Promise<
       body: JSON.stringify(body),
     });
   } catch {
-    throw new Error("تعذر الاتصال بخدمة الرفع. تأكد أن الموقع منشور على Netlify.");
+    throw new Error(
+      "تعذّر الاتصال بخادم Netlify. إذا كنت تشغّل الموقع محلياً، الدوال تعمل بعد النشر على Netlify."
+    );
   }
 
-  let data: T & { error?: string };
-  try {
-    data = (await res.json()) as T & { error?: string };
-  } catch {
+  const contentType = res.headers.get("content-type") || "";
+  let data: (T & { error?: string }) | null = null;
+
+  if (contentType.includes("application/json")) {
+    try {
+      data = (await res.json()) as T & { error?: string };
+    } catch {
+      data = null;
+    }
+  } else {
+    // إذا رجعت صفحة HTML فهذا يعني أن الدالة غير منشورة أو أعاد Netlify التوجيه لـ index.html
+    const text = await res.text();
+    if (res.status === 404 || text.includes("<!doctype html") || text.includes("<html")) {
+      throw new Error(
+        `دالة الرفع (/.netlify/functions/${name}) غير موجودة على هذا النطاق (404). تأكد من نشر مجلد netlify/functions عبر Netlify.`
+      );
+    }
+  }
+
+  if (!res.ok) {
+    throw new Error(data?.error || translateHttp(res.status));
+  }
+  if (!data) {
     throw new Error(`رد غير متوقع من الخادم (HTTP ${res.status}).`);
   }
 
-  if (!res.ok) throw new Error(data?.error || translateHttp(res.status));
   return data;
 }
 
@@ -365,11 +385,26 @@ function putToPresignedUrl(
     }
 
     xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve();
-      else reject(new Error(translateHttp(xhr.status) || "تعذّر رفع الملف إلى التخزين."));
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        reject(
+          new Error(
+            `رفض خادم التخزين R2 استلام الصورة (HTTP ${xhr.status}). تأكد من إعداد CORS على حاوية images.`
+          )
+        );
+      }
     };
-    xhr.onerror = () => reject(new Error("تعذّر الاتصال بخادم التخزين."));
-    xhr.ontimeout = () => reject(new Error("انتهت مهلة الرفع."));
+
+    xhr.onerror = () => {
+      reject(
+        new Error(
+          "تعذّر إرسال الصورة إلى R2 (خطأ اتصال أو CORS). تأكد من إعداد CORS على حاوية images في Cloudflare R2 بالسماح لنطاق موقعك."
+        )
+      );
+    };
+
+    xhr.ontimeout = () => reject(new Error("انتهت مهلة رفع الصورة (أكثر من دقيقتين)."));
 
     xhr.send(blob);
   });

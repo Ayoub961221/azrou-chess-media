@@ -1,5 +1,0 @@
-{
-  "type": "commonjs",
-  "private": true,
-  "description": "Netlify Functions are CommonJS — the root package.json is ESM for the Vite app."
-}

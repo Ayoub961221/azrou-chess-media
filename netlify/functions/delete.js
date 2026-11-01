@@ -1,12 +1,4 @@
-/**
- * POST /.netlify/functions/delete
- * Body: { key }
- *
- * - نفس التحقق من الأدمن
- * - يحذف الملف من R2. الملف غير الموجود يُعتبر محذوفاً بنجاح.
- */
-
-const {
+import {
   json,
   corsHeaders,
   HttpError,
@@ -15,15 +7,17 @@ const {
   bucket,
   readJson,
   DeleteObjectCommand,
-} = require("./_shared");
+} from "./_shared.js";
 
 const ALLOWED_PREFIX = "images/";
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 204, headers: corsHeaders(event) };
   }
-  if (event.httpMethod !== "POST") return json(405, { error: "الطريقة غير مدعومة." }, event, event);
+  if (event.httpMethod !== "POST") {
+    return json(405, { error: "الطريقة غير مدعومة." }, event);
+  }
 
   try {
     await verifyAdmin(event);
@@ -31,7 +25,7 @@ exports.handler = async (event) => {
     const { key } = await readJson(event);
 
     if (typeof key !== "string" || !key.trim()) {
-      return json(400, { error: "المفتاح (key) مفقود." });
+      return json(400, { error: "المفتاح (key) مفقود." }, event);
     }
 
     const clean = key.trim();
@@ -49,7 +43,6 @@ exports.handler = async (event) => {
 
     return json(200, { ok: true, deleted: true, key: clean }, event);
   } catch (error) {
-    // R2 يرجع NoSuchKey كخطأ؛ نعامله كنجاح
     if (error?.name === "NoSuchKey" || error?.Code === "NoSuchKey") {
       return json(200, { ok: true, deleted: true, alreadyMissing: true }, event);
     }

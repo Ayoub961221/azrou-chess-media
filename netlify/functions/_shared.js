@@ -1,23 +1,16 @@
-/**
- * ════════════════════════════════════════════════════════════════════
- *  أدوات مشتركة لدوال Netlify — التحقق من الأدمن واتصال R2
- *
- *  🔴 كل الأسرار تُقرأ من متغيّرات البيئة فقط. لا تُكتب أبداً في الكود.
- * ════════════════════════════════════════════════════════════════════
- */
-
-const {
+import {
   S3Client,
   PutObjectCommand,
   DeleteObjectCommand,
-} = require("@aws-sdk/client-s3");
-const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 /** مفتاح Firebase الويب — عام by design، ويُقرأ من البيئة إن وُجد */
 const FIREBASE_WEB_API_KEY =
   process.env.FIREBASE_WEB_API_KEY || "AIzaSyAvZTkX0dG-p5uHAO6IaU17Inl2GnLHY3E";
 
-/** بريد(ات) الأدمن المسموح — مفصولة بفواصل */
+const FALLBACK_ADMIN_UIDS = ["NgL0Ahmn5KbfUCaUZaDpuVKp5uN2"];
+
 function adminEmails() {
   return (process.env.ADMIN_EMAILS || process.env.ADMIN_EMAIL || "")
     .split(",")
@@ -25,12 +18,12 @@ function adminEmails() {
     .filter(Boolean);
 }
 
-/** معرّفات الأدمن الإضافية (اختياري) */
 function adminUids() {
-  return (process.env.ADMIN_UIDS || "")
+  const envUids = (process.env.ADMIN_UIDS || "")
     .split(",")
     .map((u) => u.trim())
     .filter(Boolean);
+  return [...new Set([...FALLBACK_ADMIN_UIDS, ...envUids])];
 }
 
 function corsHeaders(event) {
@@ -63,9 +56,9 @@ class HttpError extends Error {
 
 /** يتحقق من توكن Firebase عبر accounts:lookup ويعيد المستخدم */
 async function verifyAdmin(event) {
-  const header = event.headers?.authorization || event.headers?.Authorization || "";
+  const header = event?.headers?.authorization || event?.headers?.Authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
-  if (!token) throw new HttpError(401, "يجب تسجيل الدخول.");
+  if (!token) throw new HttpError(401, "يجب تسجيل الدخول أولاً.");
 
   let res;
   try {
@@ -78,7 +71,7 @@ async function verifyAdmin(event) {
       }
     );
   } catch {
-    throw new HttpError(503, "تعذّر الاتصال بخدمة المصادقة.");
+    throw new HttpError(503, "تعذّر الاتصال بخدمة المصادقة في Firebase.");
   }
 
   if (!res.ok) throw new HttpError(401, "انتهت الجلسة. سجّل الدخول من جديد.");
@@ -91,24 +84,32 @@ async function verifyAdmin(event) {
   const allowedEmails = adminEmails();
   const allowedUids = adminUids();
 
-  if (allowedEmails.length === 0 && allowedUids.length === 0) {
-    throw new HttpError(503, "لم يُضبط ADMIN_EMAILS على الخادم.");
-  }
-
   const isAdmin =
     (email && allowedEmails.includes(email)) || allowedUids.includes(user.localId);
 
-  if (!isAdmin) throw new HttpError(403, "هذا الحساب غير مُخوَّل لإدارة الصور.");
+  if (!isAdmin) {
+    throw new HttpError(
+      403,
+      `الحساب (${email || user.localId}) غير مُخوَّل لإدارة الصور. يجب إضافة البريد إلى ADMIN_EMAILS في Netlify.`
+    );
+  }
 
   return { uid: user.localId, email };
 }
 
+function r2AccountId() {
+  return process.env.R2_ACCOUNT_ID || "a1bb65952ee4be94909fbc5a6180e41b";
+}
+
 function r2Client() {
-  const accountId = process.env.R2_ACCOUNT_ID;
+  const accountId = r2AccountId();
   const key = process.env.R2_KEY;
   const secret = process.env.R2_SECRET;
   if (!accountId || !key || !secret) {
-    throw new HttpError(503, "أسرار R2 غير مضبوطة على الخادم (R2_ACCOUNT_ID/R2_KEY/R2_SECRET).");
+    throw new HttpError(
+      503,
+      "أسرار R2 غير مضبوطة على Netlify: يجب إضافة R2_KEY و R2_SECRET في Site configuration ← Environment variables."
+    );
   }
   return new S3Client({
     region: "auto",
@@ -121,7 +122,6 @@ function r2Client() {
 }
 
 function bucket() {
-  // اسم الحاوية الافتراضي "images" — можно переопределить عبر R2_BUCKET
   const name = (process.env.R2_BUCKET || "images").trim();
   if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(name)) {
     throw new HttpError(500, "اسم الحاوية غير صالح.");
@@ -130,8 +130,12 @@ function bucket() {
 }
 
 function publicBase() {
-  const base = (process.env.R2_PUBLIC_URL || "").trim().replace(/\/+$/, "");
-  if (!base) throw new HttpError(503, "R2_PUBLIC_URL غير مضبوط على الخادم.");
+  const base = (
+    process.env.R2_PUBLIC_URL ||
+    "https://pub-abfb8b1919c14f88a8bbde4e6d80dcf0.r2.dev"
+  )
+    .trim()
+    .replace(/\/+$/, "");
   return base;
 }
 
@@ -160,13 +164,13 @@ const ALLOWED_TYPES = {
 
 async function readJson(event) {
   try {
-    return JSON.parse(event.body || "{}");
+    return JSON.parse(event?.body || "{}");
   } catch {
     throw new HttpError(400, "جسم الطلب غير صالح.");
   }
 }
 
-module.exports = {
+export {
   json,
   corsHeaders,
   HttpError,
