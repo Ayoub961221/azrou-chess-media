@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import clubLogo from "@/assets/club-logo.png?inline";
+import clubLogo from "@/assets/clubLogo";
 import LoginPage from "@/admin/LoginPage";
 import {
   AboutSection,

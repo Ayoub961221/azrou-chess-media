@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import clubLogo from "@/assets/club-logo.png?inline";
+import clubLogo from "@/assets/clubLogo";
 import { adminSignIn, translateAuthError } from "@/lib/content";
 import { Button, Field, TextInput } from "@/admin/ui";
 

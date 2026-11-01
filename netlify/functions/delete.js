@@ -32,8 +32,14 @@ export const handler = async (event) => {
     if (clean.length > 500 || clean.includes("..") || clean.startsWith("/")) {
       return json(400, { error: "المفتاح غير صالح." }, event);
     }
+
+    // إذا كان المفتاح لا يبدأ بـ images/، فهو ليس ملف R2 (ربما رابط قديم من Cloudinary أو ImgBB)
     if (!clean.startsWith(ALLOWED_PREFIX)) {
-      return json(403, { error: "غير مسموح بحذف مفاتيح خارج مجلد الصور." }, event);
+      return json(
+        200,
+        { ok: true, deleted: true, alreadyMissing: true, reason: "المفتاح ليس في R2." },
+        event
+      );
     }
 
     const client = r2Client();

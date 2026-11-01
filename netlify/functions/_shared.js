@@ -5,17 +5,23 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-/** مفتاح Firebase الويب — عام by design، ويُقرأ من البيئة إن وُجد */
+/** مفتاح Firebase الويب العام */
 const FIREBASE_WEB_API_KEY =
   process.env.FIREBASE_WEB_API_KEY || "AIzaSyAvZTkX0dG-p5uHAO6IaU17Inl2GnLHY3E";
 
+const FIREBASE_DB_URL =
+  process.env.FIREBASE_DB_URL ||
+  "https://azrou-chess-club-default-rtdb.firebaseio.com";
+
 const FALLBACK_ADMIN_UIDS = ["NgL0Ahmn5KbfUCaUZaDpuVKp5uN2"];
+const FALLBACK_ADMIN_EMAILS = ["ayoubaghrari063336@gmail.com"];
 
 function adminEmails() {
-  return (process.env.ADMIN_EMAILS || process.env.ADMIN_EMAIL || "")
+  const envEmails = (process.env.ADMIN_EMAILS || process.env.ADMIN_EMAIL || "")
     .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
+  return [...new Set([...FALLBACK_ADMIN_EMAILS, ...envEmails])];
 }
 
 function adminUids() {
@@ -84,8 +90,24 @@ async function verifyAdmin(event) {
   const allowedEmails = adminEmails();
   const allowedUids = adminUids();
 
-  const isAdmin =
-    (email && allowedEmails.includes(email)) || allowedUids.includes(user.localId);
+  // فحص 1: هل يطابق UID أو البريد المسجّل
+  let isAdmin =
+    allowedUids.includes(user.localId) ||
+    (email && allowedEmails.includes(email));
+
+  // فحص 2: التحقق من عقدة admins في Realtime Database
+  if (!isAdmin) {
+    try {
+      const dbRes = await fetch(
+        `${FIREBASE_DB_URL}/admins/${user.localId}.json?auth=${encodeURIComponent(token)}`
+      );
+      if (dbRes.ok && (await dbRes.json()) === true) {
+        isAdmin = true;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
 
   if (!isAdmin) {
     throw new HttpError(
@@ -98,19 +120,28 @@ async function verifyAdmin(event) {
 }
 
 function r2AccountId() {
-  return process.env.R2_ACCOUNT_ID || "a1bb65952ee4be94909fbc5a6180e41b";
+  return (
+    process.env.R2_ACCOUNT_ID ||
+    "a1bb65952ee4be94909fbc5a6180e41b"
+  );
 }
 
 function r2Client() {
   const accountId = r2AccountId();
-  const key = process.env.R2_KEY;
-  const secret = process.env.R2_SECRET;
+  const key =
+    process.env.R2_KEY ||
+    "1e0069b16294b2cd90f4cfa25b678a53";
+  const secret =
+    process.env.R2_SECRET ||
+    "e0375676420dd38ae94a6390344021efe01a2c5643e19298b08f5a8faec8ecc2";
+
   if (!accountId || !key || !secret) {
     throw new HttpError(
       503,
       "أسرار R2 غير مضبوطة على Netlify: يجب إضافة R2_KEY و R2_SECRET في Site configuration ← Environment variables."
     );
   }
+
   return new S3Client({
     region: "auto",
     endpoint: `https://${accountId}.r2.cloudflarestorage.com`,

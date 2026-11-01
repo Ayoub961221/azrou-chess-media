@@ -1,5 +1,5 @@
 import { useEffect, useRef, type CSSProperties } from "react";
-import clubLogo from "@/assets/club-logo.png?inline";
+import clubLogo from "@/assets/clubLogo";
 import { defaultContent, type SiteSettings } from "@/lib/content-model";
 import { navigation } from "@/data/navigation";
 import { ChevronLeftIcon, CloseIcon, LockIcon, MapPinIcon } from "@/components/icons";

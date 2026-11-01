@@ -240,6 +240,27 @@ async function callFunction<T>(name: "sign" | "delete", body: unknown): Promise<
       },
       body: JSON.stringify(body),
     });
+
+    // إذا رجع 404 أو صفحة HTML نجرب الرابط البديل /api/:name
+    const ct = res.headers.get("content-type") || "";
+    if (res.status === 404 || !ct.includes("application/json")) {
+      try {
+        const altRes = await fetch(`/api/${name}`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        });
+        const altCt = altRes.headers.get("content-type") || "";
+        if (altRes.ok && altCt.includes("application/json")) {
+          res = altRes;
+        }
+      } catch {
+        /* نتجاهل ونبقي الرد الأول */
+      }
+    }
   } catch {
     throw new Error(
       "تعذّر الاتصال بخادم Netlify. إذا كنت تشغّل الموقع محلياً، الدوال تعمل بعد النشر على Netlify."
@@ -260,7 +281,7 @@ async function callFunction<T>(name: "sign" | "delete", body: unknown): Promise<
     const text = await res.text();
     if (res.status === 404 || text.includes("<!doctype html") || text.includes("<html")) {
       throw new Error(
-        `دالة الرفع (/.netlify/functions/${name}) غير موجودة على هذا النطاق (404). تأكد من نشر مجلد netlify/functions عبر Netlify.`
+        `دالة الرفع (/.netlify/functions/${name}) غير موجودة على هذا النطاق (404). تأكد من إعداد النشر في Netlify ومراجعة تبويب Functions في لوحة تحكم Netlify.`
       );
     }
   }

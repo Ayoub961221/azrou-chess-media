@@ -6,7 +6,12 @@
   directory = "netlify/functions"
   node_bundler = "esbuild"
 
-# منع اعتراض استدعاءات دوال Netlify بقاعدة SPA
+# استدعاء دوال Netlify عبر /api/ أو /.netlify/functions/
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
 [[redirects]]
   from = "/.netlify/*"
   to = "/.netlify/:splat"

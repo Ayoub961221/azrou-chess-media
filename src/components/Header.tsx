@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import clubLogo from "@/assets/club-logo.png?inline";
+import clubLogo from "@/assets/clubLogo";
 import { defaultContent, type SiteSettings } from "@/lib/content-model";
 import { MenuIcon } from "@/components/icons";
 import SideMenu from "@/components/SideMenu";

@@ -38,10 +38,11 @@ export const handler = async (event) => {
     const key = buildKey(filename).replace(/\.[a-z0-9]+$/, `.${ext}`);
     const client = r2Client();
 
-    // نولّد الرابط الموقّع لـ PUT
+    // نولّد الرابط الموقّع لـ PUT مع تحديد ContentType حتى يطابق الرفع
     const command = new PutObjectCommand({
       Bucket: bucket(),
       Key: key,
+      ContentType: type,
     });
 
     const url = await getSignedUrl(client, command, { expiresIn: 60 });
