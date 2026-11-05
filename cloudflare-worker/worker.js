@@ -13,10 +13,10 @@
  *    POST /github/delete   حذف صورة
  *
  *  الحماية (كلها على الخادم، لا يمكن تجاوزها من المتصفح):
- *    ١. التحقق من Firebase ID Token عبر accounts:lookup
- *    ٢. التحقق من أن المستخدم مدير (قائمة / claim / admins/{uid})
- *    ٣. CORS مقيّد بنطاقات محدّدة
- *    ٤. منع path traversal وتقييد المجلد والصيغ والحجم
+ *    ١. التحقق الصارم من Firebase ID Token والتحقق من عقدة admins/{uid}
+ *    ٢. CORS مقيّد بنطاق Netlify والنطاقات المصرحة
+ *    ٣. حماية مشددة من Path Traversal بفك تشفير الرابط والتحقق الصارم
+ *    ٤. تقييد المجلد والصيغ والحجم
  * ════════════════════════════════════════════════════════════════════
  */
 
@@ -27,14 +27,15 @@ const GITHUB_REPO_DEFAULT = "azrou-chess-media";
 const GITHUB_BRANCH = "main";
 const IMAGES_DIR = "public/images/";
 
-const FIREBASE_PROJECT_ID = "azrou-chess-club";
 const FIREBASE_API_KEY = "AIzaSyAvZTkX0dG-p5uHAO6IaU17Inl2GnLHY3E";
 const DB_URL = "https://azrou-chess-club-default-rtdb.firebaseio.com";
 
 /** معرّفات المدراء الاحتياطية */
 const ADMIN_UIDS = ["NgL0Ahmn5KbfUCaUZaDpuVKp5uN2"];
 
+/** النطاقات المصرح لها بالاتصال (CORS) */
 const ALLOWED_ORIGINS = [
+  "https://comfy-cajeta-5a216e.netlify.app",
   "https://azrou-chess-club.web.app",
   "https://azrou-chess-club.firebaseapp.com",
   "http://localhost:4173",
@@ -53,10 +54,20 @@ const EXT_MIME = {
   svg: "image/svg+xml",
 };
 
-/* ---------------- أدوات الرد ---------------- */
+/* ---------------- أدوات الرد و CORS ---------------- */
+
+function isAllowedOrigin(origin) {
+  if (!origin) return false;
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  // دعم نطاقات الفروع ومعاينات Netlify التابعة للموقع
+  if (/^https:\/\/[a-z0-9-]+--comfy-cajeta-5a216e\.netlify\.app$/.test(origin)) {
+    return true;
+  }
+  return false;
+}
 
 function corsHeaders(origin) {
-  const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  const allowed = isAllowedOrigin(origin) ? origin : ALLOWED_ORIGINS[0];
   return {
     "Access-Control-Allow-Origin": allowed,
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -84,72 +95,95 @@ class HttpError extends Error {
   }
 }
 
-/* ---------------- المصادقة ---------------- */
+/* ---------------- المصادقة والتحقق الصارم من الصلاحيات ---------------- */
 
 /**
- * يتحقق من Firebase ID Token عبر accounts:lookup.
- * هذه الطريقة تتحقق من التوقيع والصلاحية على خوادم Google.
+ * يتحقق من توكن Firebase عبر accounts:lookup،
+ * ثم يتحقق بشكل صارم جداً من صلاحية الأدمن عبر عقدة admins/{uid} في Realtime Database.
  */
 async function verifyFirebaseToken(idToken) {
-  const res = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FIREBASE_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ idToken }),
-    }
-  );
+  if (!idToken || typeof idToken !== "string" || idToken.length < 10) {
+    throw new HttpError(401, "توكن المصادقة مفقود أو غير صالح.");
+  }
+
+  let res;
+  try {
+    res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FIREBASE_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idToken }),
+      }
+    );
+  } catch {
+    throw new HttpError(503, "تعذّر الاتصال بخدمة المصادقة في Firebase.");
+  }
 
   if (!res.ok) {
-    throw new HttpError(401, "انتهت الجلسة. سجّل الدخول من جديد.");
+    throw new HttpError(401, "انتهت الجلسة أو أن التوكن غير صالح. سجّل الدخول من جديد.");
   }
 
   const data = await res.json();
   const user = data?.users?.[0];
   if (!user?.localId) {
-    throw new HttpError(401, "جلسة غير صالحة. سجّل الدخول من جديد.");
-  }
-
-  // نتأكد أن التوكن صادر عن مشروعنا
-  if (user.providerUserInfo && data.kind !== "identitytoolkit#GetAccountInfoResponse") {
     throw new HttpError(401, "جلسة غير صالحة.");
   }
 
-  let claims = {};
-  try {
-    claims = user.customAttributes ? JSON.parse(user.customAttributes) : {};
-  } catch {
-    claims = {};
+  if (user.disabled) {
+    throw new HttpError(403, "هذا الحساب معطّل من طرف الإدارة.");
   }
 
-  return { uid: user.localId, email: user.email, claims };
+  const uid = user.localId;
+  const email = (user.email || "").toLowerCase();
+
+  // فحص 1: التحقق الصارم من عقدة admins/{uid} في Realtime Database
+  let isDbAdmin = false;
+  try {
+    const adminRes = await fetch(
+      `${DB_URL}/admins/${encodeURIComponent(uid)}.json?auth=${encodeURIComponent(idToken)}`
+    );
+    if (adminRes.ok) {
+      const val = await adminRes.json();
+      if (val === true) {
+        isDbAdmin = true;
+      }
+    }
+  } catch (err) {
+    console.error("خطأ أثناء قراءة عقدة admins من قاعدة البيانات:", err);
+  }
+
+  // فحص 2: التحقق من القائمة الاحتياطية للمدير المصرح له
+  const isFallbackAdmin = ADMIN_UIDS.includes(uid);
+
+  // فحص 3: التحقق من custom attributes إن وجدت
+  let isClaimAdmin = false;
+  try {
+    const claims = user.customAttributes ? JSON.parse(user.customAttributes) : {};
+    if (claims.admin === true) isClaimAdmin = true;
+  } catch {}
+
+  // الفرض الصارم: يجب أن يكون مسجلاً في admins/{uid} أو القائمة المصرحة
+  if (!isDbAdmin && !isFallbackAdmin && !isClaimAdmin) {
+    throw new HttpError(
+      403,
+      `الحساب (${email || uid}) غير مُخوَّل كمسؤول في قاعدة البيانات (admins/${uid}).`
+    );
+  }
+
+  return { uid, email, isAdmin: true };
 }
 
-/** هل المستخدم مدير؟ */
+/** استخراج التوكن والتأكد من الأدمن قبل أي عملية */
 async function assertAdmin(request) {
   const header = request.headers.get("Authorization") || "";
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
-  if (!token) throw new HttpError(401, "يجب تسجيل الدخول.");
+  if (!token) throw new HttpError(401, "يجب تسجيل الدخول أولاً.");
 
-  const user = await verifyFirebaseToken(token);
-
-  if (ADMIN_UIDS.includes(user.uid)) return user;
-  if (user.claims?.admin === true) return user;
-
-  // عقدة admins/{uid} — نستعمل توكن المستخدم فتبقى قواعد القاعدة سارية
-  try {
-    const res = await fetch(
-      `${DB_URL}/admins/${user.uid}.json?auth=${encodeURIComponent(token)}`
-    );
-    if (res.ok && (await res.json()) === true) return user;
-  } catch {
-    /* نتجاهل ونرفض أدناه */
-  }
-
-  throw new HttpError(403, "هذا الحساب غير مُخوَّل لإدارة الصور.");
+  return await verifyFirebaseToken(token);
 }
 
-/* ---------------- التحقق من المدخلات ---------------- */
+/* ---------------- التحقق من المدخلات ومنع Path Traversal ---------------- */
 
 function requireToken(env) {
   if (!env.GITHUB_TOKEN) {
@@ -171,8 +205,13 @@ function pickRepo(env, requested) {
 
 /** يستخرج امتداداً آمناً ويتحقق من الصيغة */
 function safeExtension(fileName) {
-  const dot = String(fileName || "").lastIndexOf(".");
-  const ext = dot > 0 ? fileName.slice(dot + 1).toLowerCase().replace(/[^a-z0-9]/g, "") : "";
+  let name = String(fileName || "");
+  try {
+    name = decodeURIComponent(name);
+  } catch {}
+
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase().replace(/[^a-z0-9]/g, "") : "";
   if (!EXT_MIME[ext]) {
     throw new HttpError(
       415,
@@ -182,7 +221,7 @@ function safeExtension(fileName) {
   return ext;
 }
 
-/** يبني مساراً آمناً: public/images/img-<timestamp>-<random>.<ext> */
+/** يبني مساراً آمناً للصور المرفوعة */
 function buildImagePath(fileName) {
   const ext = safeExtension(fileName);
   const stamp = Date.now();
@@ -190,43 +229,79 @@ function buildImagePath(fileName) {
   return { path: `${IMAGES_DIR}img-${stamp}-${rand}.${ext}`, ext };
 }
 
-/** يتحقق من مسار موجود (للحذف) ويمنع الخروج من مجلد الصور */
+/**
+ * يتحقق من مسار الملف ويمنع ثغرة Path Traversal وفك تشفير الروابط
+ */
 function assertImagePath(path) {
-  if (typeof path !== "string" || !path.trim())
+  if (typeof path !== "string" || !path.trim()) {
     throw new HttpError(400, "مسار الملف مفقود.");
+  }
 
-  const p = path.trim();
-  if (p.length > 300) throw new HttpError(400, "مسار الملف طويل أكثر من اللازم.");
-  if (p.includes("..") || p.startsWith("/"))
-    throw new HttpError(400, "مسار الملف يحتوي تسلسلاً غير مسموح.");
-  if (!/^[A-Za-z0-9/_\-.]+$/.test(p))
+  let decodedPath = path.trim();
+
+  // فك ترميز الرابط (URL Decode) قبل الفحص لمنع أي التفاف مشفّر مثل %2e%2e
+  try {
+    decodedPath = decodeURIComponent(decodedPath);
+  } catch {
+    throw new HttpError(400, "مسار الملف يحتوي على ترميز URL غير صالح.");
+  }
+
+  // فحص ومعالجة التشفير المزدوج أو المتكرر (مثل %252e%252e)
+  try {
+    while (decodedPath.includes("%")) {
+      const next = decodeURIComponent(decodedPath);
+      if (next === decodedPath) break;
+      decodedPath = next;
+    }
+  } catch {}
+
+  const p = decodedPath.trim();
+
+  if (p.length > 300) {
+    throw new HttpError(400, "مسار الملف طويل أكثر من اللازم.");
+  }
+
+  // فحص صارم لرموز التسلّق (..) ومحاولات كسر المسار
+  if (p.includes("..") || p.startsWith("/") || p.includes("\\") || p.includes("//")) {
+    throw new HttpError(400, "مسار الملف يحتوي تسلسلاً غير مسموح (Path Traversal).");
+  }
+
+  if (!/^[a-zA-Z0-9/._-]+$/.test(p)) {
     throw new HttpError(400, "مسار الملف يحتوي رموزاً غير مسموحة.");
-  if (!p.startsWith(IMAGES_DIR))
+  }
+
+  if (!p.startsWith(IMAGES_DIR)) {
     throw new HttpError(403, `غير مسموح بالتعامل مع ملفات خارج ${IMAGES_DIR}`);
+  }
+
   safeExtension(p);
   return p;
 }
 
 /** يتحقق من Base64 ويُعيد الحجم بالبايت */
 function assertBase64(content) {
-  if (typeof content !== "string" || !content)
+  if (typeof content !== "string" || !content) {
     throw new HttpError(400, "محتوى الملف مفقود.");
+  }
 
   // نرفض data URL كاملاً — GitHub يقبل المحتوى الصافي فقط
-  if (content.startsWith("data:"))
+  if (content.startsWith("data:")) {
     throw new HttpError(400, "أزل البادئة data:…;base64, قبل الإرسال.");
+  }
 
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(content))
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(content)) {
     throw new HttpError(400, "محتوى الملف ليس Base64 صالحاً.");
+  }
 
   const padding = content.endsWith("==") ? 2 : content.endsWith("=") ? 1 : 0;
   const size = Math.floor((content.length * 3) / 4) - padding;
 
-  if (size > MAX_BYTES)
+  if (size > MAX_BYTES) {
     throw new HttpError(
       413,
       `حجم الملف ${(size / 1048576).toFixed(1)} ميغابايت. الحد الأقصى 5 ميغابايت.`
     );
+  }
 
   return size;
 }
@@ -242,7 +317,7 @@ function ghHeaders(token) {
   };
 }
 
-/** يترجم أخطاء GitHub إلى رسائل عربية */
+/** يترجم أخطاء GitHub إلى رسائل عربية واضحة */
 function githubError(status, message) {
   if (status === 401) return new HttpError(401, "توكن GitHub غير صالح أو منتهي الصلاحية.");
   if (status === 403)
@@ -253,7 +328,7 @@ function githubError(status, message) {
   if (status === 404)
     return new HttpError(
       404,
-      `المستودع ${GITHUB_OWNER}/… غير موجود أو التوكن لا يصل إليه. تأكد أنه Public ومن اسم المستودع.`
+      `المستودع ${GITHUB_OWNER}/… غير موجود أو التوكن لا يصل إليه. تأكد أنه Public ومن صحة اسمه.`
     );
   if (status === 409 || status === 422)
     return new HttpError(409, "تعارض: ملف بنفس الاسم موجود مسبقاً.");
@@ -319,7 +394,7 @@ async function githubDelete(repo, path, token) {
   return { deleted: true, alreadyMissing: false };
 }
 
-/** يطلب من jsDelivr تحديث نسخته المخزَّنة */
+/** يطلب من jsDelivr تحديث نسخته المخزَّنة فوراً */
 async function purgeJsDelivr(repo, path) {
   await fetch(
     `https://purge.jsdelivr.net/gh/${GITHUB_OWNER}/${repo}@${GITHUB_BRANCH}/${path}`
@@ -330,7 +405,7 @@ function cdnUrl(repo, path) {
   return `https://cdn.jsdelivr.net/gh/${GITHUB_OWNER}/${repo}@${GITHUB_BRANCH}/${path}`;
 }
 
-/* ---------------- المسارات ---------------- */
+/* ---------------- معالجات المسارات ---------------- */
 
 async function handleStatus(request, env, origin) {
   await assertAdmin(request);
@@ -424,29 +499,34 @@ async function handleDelete(request, env, origin) {
   );
 }
 
-/* ---------------- نقطة الدخول ---------------- */
+/* ---------------- نقطة الدخول الرئيسية ---------------- */
 
 export default {
   async fetch(request, env) {
     const origin = request.headers.get("Origin") || "";
 
-    if (request.method === "OPTIONS")
+    if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders(origin) });
+    }
 
-    if (origin && !ALLOWED_ORIGINS.includes(origin))
-      return json({ error: "نطاق غير مصرّح به." }, 403, origin);
+    if (origin && !isAllowedOrigin(origin)) {
+      return json({ error: "نطاق غير مصرّح به (CORS)." }, 403, origin);
+    }
 
     const route = new URL(request.url).pathname.replace(/\/+$/, "");
 
     try {
-      if (route.endsWith("/github/status") && request.method === "GET")
+      if (route.endsWith("/github/status") && request.method === "GET") {
         return await handleStatus(request, env, origin);
+      }
 
-      if (route.endsWith("/github/upload") && request.method === "POST")
+      if (route.endsWith("/github/upload") && request.method === "POST") {
         return await handleUpload(request, env, origin);
+      }
 
-      if (route.endsWith("/github/delete") && request.method === "POST")
+      if (route.endsWith("/github/delete") && request.method === "POST") {
         return await handleDelete(request, env, origin);
+      }
 
       return json({ error: "المسار غير معروف." }, 404, origin);
     } catch (error) {

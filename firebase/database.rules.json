@@ -24,31 +24,31 @@
         ".write": "(!data.exists() && newData.exists() && newData.child('status').val() === 'new') || (auth != null && (root.child('admins').child(auth.uid).val() === true || auth.uid === 'NgL0Ahmn5KbfUCaUZaDpuVKp5uN2'))",
         ".validate": "newData.hasChildren(['fullName','phone','level','status','createdAt'])",
         "fullName": {
-          ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 100"
+          ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 100 && !newData.val().matches(/<[^>]+>/)"
         },
         "phone": {
-          ".validate": "newData.isString() && newData.val().length >= 8 && newData.val().length <= 20"
+          ".validate": "newData.isString() && (newData.val().matches(/^(0[5-7][0-9]{8})$/) || newData.val().matches(/^(\\+212[5-7][0-9]{8})$/) || newData.val().matches(/^[0-9+\\- ]{8,20}$/))"
         },
         "birthInfo": {
-          ".validate": "newData.isString() && newData.val().length <= 40"
+          ".validate": "newData.isString() && newData.val().length <= 40 && !newData.val().matches(/<[^>]+>/)"
         },
         "guardianName": {
-          ".validate": "newData.isString() && newData.val().length <= 100"
+          ".validate": "newData.isString() && newData.val().length <= 100 && !newData.val().matches(/<[^>]+>/)"
         },
         "email": {
-          ".validate": "newData.isString() && newData.val().length <= 120"
+          ".validate": "newData.isString() && (newData.val().length === 0 || (newData.val().length <= 120 && newData.val().matches(/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$/)))"
         },
         "notes": {
-          ".validate": "newData.isString() && newData.val().length < 501"
+          ".validate": "newData.isString() && newData.val().length <= 500 && !newData.val().matches(/<[^>]+>/)"
         },
         "level": {
           ".validate": "newData.isString() && (newData.val() === 'مبتدئ' || newData.val() === 'متوسط' || newData.val() === 'متقدم' || newData.val() === 'beginner' || newData.val() === 'intermediate' || newData.val() === 'advanced')"
         },
         "status": {
-          ".validate": "newData.isString() && (newData.val() === 'new' || newData.val() === 'done')"
+          ".validate": "newData.isString() && (newData.val() === 'new' || (data.exists() && newData.val() === 'done' && auth != null && (root.child('admins').child(auth.uid).val() === true || auth.uid === 'NgL0Ahmn5KbfUCaUZaDpuVKp5uN2')))"
         },
         "createdAt": {
-          ".validate": "newData.isNumber()"
+          ".validate": "newData.isNumber() && newData.val() <= now"
         },
         "$other": {
           ".validate": false
